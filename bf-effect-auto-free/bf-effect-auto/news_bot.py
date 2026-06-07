@@ -80,10 +80,7 @@ def build_message(item: Dict) -> str:
     title_ru = translate_to_ru(item["title"])
     summary_ru = translate_to_ru(item["summary"])
 
-    if summary_ru:
-        summary_ru = trim_text(summary_ru, 450)
-    else:
-        summary_ru = "Подробности опубликованы в источнике."
+ summary_ru = trim_text(summary_ru, 450)
 
     return f"""{title_ru}
 
@@ -116,6 +113,8 @@ def collect_news() -> List[Dict]:
             title = clean_html(getattr(entry, "title", ""))
             link = getattr(entry, "link", "").strip()
             summary = clean_html(getattr(entry, "summary", ""))
+            if len(summary) < 80:
+    continue
 
             if not title or not link:
                 continue
