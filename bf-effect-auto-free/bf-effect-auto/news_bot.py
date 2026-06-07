@@ -141,18 +141,38 @@ def normalize_title(title: str) -> str:
     return title.strip()
 
 
+def is_similar_text(a: str, b: str) -> bool:
+    a_words = {w.lower() for w in re.findall(r"[А-Яа-яA-Za-z0-9]+", a) if len(w) > 4}
+    b_words = {w.lower() for w in re.findall(r"[А-Яа-яA-Za-z0-9]+", b) if len(w) > 4}
+
+    if not a_words or not b_words:
+        return False
+
+    common = a_words.intersection(b_words)
+    return len(common) >= 3
+
+
 def build_post(title: str, summary: str, source: str) -> str:
     title_ru = normalize_title(shorten(translate_to_ru(title), 110))
-    summary_ru = shorten(translate_to_ru(summary), 360)
+    summary_ru = shorten(translate_to_ru(summary), 420)
 
     combined_ru = f"{title_ru} {summary_ru}".lower()
+
     if any(phrase in combined_ru for phrase in BAD_RU_PHRASES):
         return ""
 
     sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
-    short_body = " ".join(sentences[:2]).strip()
-    if not short_body:
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    if len(sentences) > 1 and is_similar_text(title_ru, sentences[0]):
+        short_body = " ".join(sentences[1:3]).strip()
+    else:
+        short_body = " ".join(sentences[:2]).strip()
+
+    if len(short_body) < 40:
         short_body = summary_ru
+
+    short_body = shorten(short_body, 360)
 
     return f"{title_ru}\n\n{short_body}\n\nИсточник: {source}"
 
