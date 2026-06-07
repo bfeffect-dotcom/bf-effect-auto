@@ -1,180 +1,227 @@
-import os
-import json
-import re
-import html
 import hashlib
-from pathlib import Path
+import json
+import os
+import re
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List
 
 import feedparser
 import requests
+from deep_translator import GoogleTranslator
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHANNEL = "@bf_effect_news"
-STATE_FILE = Path("published_news.json")
+CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@bf_effect_news")
+STATE_FILE = Path("posted_news.json")
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "3"))
+MIN_SUMMARY_LENGTH = 60
 
 RSS_FEEDS = [
-    {"name": "MarketWatch", "url": "https://feeds.marketwatch.com/marketwatch/topstories/"},
-    {"name": "Yahoo Finance", "url": "https://finance.yahoo.com/news/rssindex"},
-    {"name": "CNBC Markets", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"},
-    {"name": "CNBC Economy", "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html"},
-    {"name": "Investing.com", "url": "https://www.investing.com/rss/news.rss"},
-    {"name": "WSJ Markets", "url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml"},
-    {"name": "WSJ World", "url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml"},
+    {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
+    {"url": "https://www.investing.com/rss/news_14.rss", "source": "Investing.com"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC,CL=F,GC=F,EURUSD=X&region=US&lang=en-US", "source": "Yahoo Finance"},
+    {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "CNBC"},
 ]
 
-KEYWORDS = [
-    "inflation", "cpi", "ppi", "federal reserve", "fed", "interest rate", "rates",
-    "rate cut", "rate hike", "recession", "economy", "gdp", "unemployment", "jobs",
-    "treasury", "bond", "dollar", "yield",
-    "oil", "brent", "wti", "opec", "gas", "natural gas", "gold", "silver", "commodities",
-    "china", "tariff", "sanctions", "war", "iran", "israel", "russia", "ukraine", "red sea", "hormuz",
-    "nvidia", "tesla", "apple", "microsoft", "amazon", "google", "alphabet", "meta", "amd",
-    "earnings", "guidance", "forecast", "profit", "revenue",
-    "stocks", "s&p", "nasdaq", "dow", "market", "futures",
+STRONG_TOPICS = [
+    "federal reserve", "fed", "interest rate", "rate cut", "rate hike",
+    "inflation", "cpi", "ppi", "payrolls", "unemployment", "gdp", "ecb",
+    "oil", "brent", "wti", "opec", "gold", "gas",
+    "tariff", "tariffs", "sanctions", "iran", "israel", "ukraine", "russia", "hormuz",
 ]
 
-RU_HINTS = {
-    "inflation": "инфляция", "cpi": "индекс потребительских цен", "ppi": "индекс цен производителей",
-    "federal reserve": "Федеральная резервная система", "fed": "ФРС", "interest rate": "процентные ставки",
-    "rate cut": "снижение ставки", "rate hike": "повышение ставки", "recession": "рецессия",
-    "economy": "экономика", "gdp": "ВВП", "unemployment": "безработица", "jobs": "рынок труда",
-    "oil": "нефть", "brent": "Brent", "wti": "WTI", "opec": "ОПЕК", "gold": "золото",
-    "china": "Китай", "tariff": "пошлины", "sanctions": "санкции", "war": "военный конфликт",
-    "iran": "Иран", "israel": "Израиль", "russia": "Россия", "ukraine": "Украина", "hormuz": "Ормузский пролив",
-    "nvidia": "NVIDIA", "tesla": "Tesla", "apple": "Apple", "microsoft": "Microsoft", "amazon": "Amazon",
-    "google": "Google", "alphabet": "Alphabet", "meta": "Meta", "earnings": "отчетность",
-    "revenue": "выручка", "profit": "прибыль", "stocks": "акции", "nasdaq": "Nasdaq", "s&p": "S&P 500",
+COMPANY_TOPICS = [
+    "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta", "oracle", "spacex",
+]
+
+COMPANY_EVENT_WORDS = [
+    "earnings", "results", "guidance", "forecast", "revenue forecast", "ipo",
+    "deal", "agreement", "contract", "partnership", "acquisition", "merger",
+    "buyout", "layoffs", "antitrust", "regulator", "sec", "ftc",
+]
+
+BLACKLIST = [
+    "retirement", "retirees", "retirement community", "advisor", "advisers",
+    "robo-advisor", "stock picking", "personal finance", "mortgage",
+    "credit card", "housing", "real estate", "buy-in", "how to",
+    "here's what", "here’s what", "opinion", "column", "watchlist",
+    "etf", "etfs", "ways to play", "motley fool", "fool.com",
+    "compare", "comparison", "what to watch", "watch this week", "this week",
+    "week ahead", "weekly", "outlook", "market outlook", "preview",
+    "analyst says", "analysts say", "wall street says", "wall street gauges",
+    "investing strategy", "portfolio", "best stocks", "top stocks",
+]
+
+BAD_RU_PHRASES = [
+    "акции шатаются", "что смотреть", "на этой неделе", "инвесторы ждут",
+    "рынок реагирует", "готовятся к масштабному ipo", "так или иначе",
+]
+
+TITLE_REPLACEMENTS = {
+    "Китайские электромобили могут появиться в США в течение нескольких лет, так или иначе": "Китайские электромобили могут выйти на рынок США несмотря на тарифы",
+    "Акции шатаются": "Рынки ждут ключевых событий",
+    "что смотреть на этой неделе": "ключевые события недели",
+    "готовятся к масштабному IPO": "ждут новостей об IPO",
 }
 
 
-def clean_text(value: str) -> str:
-    value = html.unescape(value or "")
-    value = re.sub(r"<[^>]+>", " ", value)
-    value = re.sub(r"\s+", " ", value).strip()
-    return value
+def clean_html(text: str) -> str:
+    text = re.sub(r"<.*?>", "", text or "")
+    text = re.sub(r"&nbsp;", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
-def normalize_for_id(text: str) -> str:
-    text = text.lower()
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"[^a-z0-9а-яё ]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+def translate_to_ru(text: str) -> str:
+    if not text:
+        return ""
+    try:
+        return GoogleTranslator(source="auto", target="ru").translate(text)
+    except Exception as e:
+        print("Translation error:", e)
+        return text
 
 
-def make_news_id(title: str, link: str) -> str:
-    base = normalize_for_id(title) or link
-    return hashlib.sha256(base.encode("utf-8")).hexdigest()[:24]
-
-
-def load_published() -> set:
+def load_posted_ids() -> set:
     if not STATE_FILE.exists():
         return set()
     try:
-        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        return set(data.get("published", []))
+        return set(json.loads(STATE_FILE.read_text(encoding="utf-8")))
     except Exception:
         return set()
 
 
-def save_published(published: set) -> None:
-    data = {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "published": list(published)[-1000:],
-    }
-    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_posted_ids(posted_ids: set) -> None:
+    STATE_FILE.write_text(
+        json.dumps(list(posted_ids)[-500:], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
-def matches_keywords(title: str, summary: str) -> bool:
-    text = f"{title} {summary}".lower()
-    return any(keyword in text for keyword in KEYWORDS)
+def item_id(title: str, link: str) -> str:
+    return hashlib.sha256(f"{title}|{link}".encode("utf-8")).hexdigest()
 
 
-def build_russian_post(title: str, summary: str, source: str) -> str:
-    title_clean = clean_text(title)
-    summary_clean = clean_text(summary)
+def is_market_relevant(title: str, summary: str, link: str) -> bool:
+    text = f"{title} {summary} {link}".lower()
 
-    text_for_keywords = f"{title_clean} {summary_clean}".lower()
-    found = [RU_HINTS[k] for k in RU_HINTS if k in text_for_keywords]
-    found = list(dict.fromkeys(found))[:3]
+    if any(word in text for word in BLACKLIST):
+        return False
 
-    # Бесплатная версия без AI: аккуратный редакторский шаблон на русском.
-    # Заголовок пока не переводится идеально, но пост уже выглядит чище RSS-ленты.
-    headline = title_clean
+    if any(word in text for word in STRONG_TOPICS):
+        return True
 
-    if summary_clean:
-        body = summary_clean
-    else:
-        if found:
-            body = f"Новость связана с темами: {', '.join(found)}. Такие события обычно привлекают внимание участников мировых рынков."
-        else:
-            body = "Событие привлекло внимание финансовых рынков и может быть важным для глобальной экономической повестки."
-
-    if len(body) > 420:
-        body = body[:417].rsplit(" ", 1)[0] + "..."
-
-    context = ""
-    if found:
-        context = f"\n\nВ фокусе: {', '.join(found)}."
-
-    return f"{headline}\n\n{body}{context}\n\nИсточник: {source}"
+    has_company = any(word in text for word in COMPANY_TOPICS)
+    has_company_event = any(word in text for word in COMPANY_EVENT_WORDS)
+    return has_company and has_company_event
 
 
-def send_message(text: str) -> bool:
+def get_summary(entry) -> str:
+    candidates = [
+        getattr(entry, "summary", ""),
+        getattr(entry, "description", ""),
+        getattr(entry, "subtitle", ""),
+    ]
+    for candidate in candidates:
+        summary = clean_html(candidate)
+        if len(summary) >= MIN_SUMMARY_LENGTH:
+            return summary
+    return ""
+
+
+def shorten(text: str, limit: int) -> str:
+    text = clean_html(text)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(".,;:") + "."
+
+
+def normalize_title(title: str) -> str:
+    for old, new in TITLE_REPLACEMENTS.items():
+        title = title.replace(old, new)
+    return title.strip()
+
+
+def build_post(title: str, summary: str, source: str) -> str:
+    title_ru = normalize_title(shorten(translate_to_ru(title), 115))
+    summary_ru = shorten(translate_to_ru(summary), 360)
+
+    combined_ru = f"{title_ru} {summary_ru}".lower()
+    if any(phrase in combined_ru for phrase in BAD_RU_PHRASES):
+        return ""
+
+    sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
+    short_body = " ".join(sentences[:2]).strip() or summary_ru
+
+    return f"{title_ru}\n\n{short_body}\n\nИсточник: {source}"
+
+
+def send_message(text: str, link: str) -> bool:
+    message = f"{text}\n\n{link}"
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     response = requests.post(
         url,
         json={
             "chat_id": CHANNEL,
-            "text": text,
-            "disable_web_page_preview": True,
+            "text": message,
+            "disable_web_page_preview": False,
         },
         timeout=20,
     )
     if not response.ok:
         print("Telegram error:", response.status_code, response.text)
-    return response.ok
+        return False
+    return True
+
+
+def collect_news() -> List[Dict]:
+    results = []
+    seen_ids = set()
+    for feed in RSS_FEEDS:
+        parsed = feedparser.parse(feed["url"])
+        print(f"Feed {feed['source']}: {len(parsed.entries)} entries")
+        for entry in parsed.entries[:15]:
+            title = clean_html(getattr(entry, "title", ""))
+            link = getattr(entry, "link", "").strip()
+            summary = get_summary(entry)
+            if not title or not link or not summary:
+                continue
+            if not is_market_relevant(title, summary, link):
+                continue
+            uid = item_id(title, link)
+            if uid in seen_ids:
+                continue
+            seen_ids.add(uid)
+            results.append({
+                "id": uid,
+                "title": title,
+                "summary": summary,
+                "link": link,
+                "source": feed["source"],
+            })
+    return results
 
 
 def main() -> None:
-    published = load_published()
-    sent = 0
-
-    for feed in RSS_FEEDS:
-        if sent >= MAX_POSTS_PER_RUN:
+    print("Run started:", datetime.now(timezone.utc).isoformat())
+    posted_ids = load_posted_ids()
+    news = collect_news()
+    published = 0
+    print(f"Collected relevant news: {len(news)}")
+    for item in news:
+        if item["id"] in posted_ids:
+            continue
+        if published >= MAX_POSTS_PER_RUN:
             break
-
-        parsed = feedparser.parse(feed["url"])
-        entries = getattr(parsed, "entries", [])[:10]
-
-        for item in entries:
-            if sent >= MAX_POSTS_PER_RUN:
-                break
-
-            title = clean_text(getattr(item, "title", ""))
-            summary = clean_text(getattr(item, "summary", ""))
-            link = getattr(item, "link", "")
-
-            if not title:
-                continue
-
-            news_id = make_news_id(title, link)
-            if news_id in published:
-                continue
-
-            if not matches_keywords(title, summary):
-                continue
-
-            post = build_russian_post(title, summary, feed["name"])
-            if send_message(post):
-                published.add(news_id)
-                sent += 1
-                print(f"Published: {title}")
-
-    save_published(published)
-    print(f"Done. Published {sent} posts.")
+        post_text = build_post(item["title"], item["summary"], item["source"])
+        if not post_text:
+            continue
+        if send_message(post_text, item["link"]):
+            posted_ids.add(item["id"])
+            published += 1
+    save_posted_ids(posted_ids)
+    print(f"Published: {published}")
 
 
 if __name__ == "__main__":
