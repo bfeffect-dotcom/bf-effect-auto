@@ -23,12 +23,21 @@ RSS_FEEDS = [
     {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "CNBC"},
 ]
 
-IMPORTANT_TOPICS = [
+STRONG_TOPICS = [
     "federal reserve", "fed", "interest rate", "rate cut", "rate hike",
     "inflation", "cpi", "ppi", "payrolls", "unemployment", "gdp", "ecb",
     "oil", "brent", "wti", "opec", "gold", "gas",
-    "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta",
-    "earnings", "guidance", "revenue forecast", "oracle", "spacex",
+    "tariff", "tariffs", "sanctions", "iran", "israel", "ukraine", "russia", "hormuz",
+]
+
+COMPANY_TOPICS = [
+    "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta", "oracle", "spacex",
+]
+
+COMPANY_EVENT_WORDS = [
+    "earnings", "results", "guidance", "forecast", "revenue forecast", "ipo",
+    "deal", "agreement", "contract", "partnership", "acquisition", "merger",
+    "buyout", "layoffs", "antitrust", "regulator", "sec", "ftc",
 ]
 
 BLACKLIST = [
@@ -37,7 +46,15 @@ BLACKLIST = [
     "credit card", "housing", "real estate", "buy-in", "how to",
     "here's what", "here’s what", "opinion", "column", "watchlist",
     "etf", "etfs", "ways to play", "motley fool", "fool.com",
-    "analyst", "analysts", "compare", "comparison",
+    "compare", "comparison", "what to watch", "watch this week", "this week",
+    "week ahead", "weekly", "outlook", "market outlook", "preview",
+    "analyst says", "analysts say", "wall street says", "wall street gauges",
+    "investing strategy", "portfolio", "best stocks", "top stocks",
+]
+
+BAD_RU_PHRASES = [
+    "акции шатаются", "что смотреть", "на этой неделе", "инвесторы ждут",
+    "рынок реагирует", "готовятся к масштабному ipo",
 ]
 
 
@@ -80,10 +97,16 @@ def item_id(title: str, link: str) -> str:
 
 def is_market_relevant(title: str, summary: str, link: str) -> bool:
     text = f"{title} {summary} {link}".lower()
+
     if any(word in text for word in BLACKLIST):
         return False
-    score = sum(1 for word in IMPORTANT_TOPICS if word in text)
-    return score >= 2
+
+    if any(word in text for word in STRONG_TOPICS):
+        return True
+
+    has_company = any(word in text for word in COMPANY_TOPICS)
+    has_company_event = any(word in text for word in COMPANY_EVENT_WORDS)
+    return has_company and has_company_event
 
 
 def get_summary(entry) -> str:
@@ -107,9 +130,24 @@ def shorten(text: str, limit: int) -> str:
     return cut.rstrip(".,;:") + "."
 
 
+def normalize_title(title: str) -> str:
+    replacements = {
+        "Акции шатаются": "Рынки ждут ключевых событий",
+        "что смотреть на этой неделе": "ключевые события недели",
+        "готовятся к масштабному IPO": "ждут новостей об IPO",
+    }
+    for old, new in replacements.items():
+        title = title.replace(old, new)
+    return title.strip()
+
+
 def build_post(title: str, summary: str, source: str) -> str:
-    title_ru = shorten(translate_to_ru(title), 120)
-    summary_ru = shorten(translate_to_ru(summary), 420)
+    title_ru = normalize_title(shorten(translate_to_ru(title), 110))
+    summary_ru = shorten(translate_to_ru(summary), 360)
+
+    combined_ru = f"{title_ru} {summary_ru}".lower()
+    if any(phrase in combined_ru for phrase in BAD_RU_PHRASES):
+        return ""
 
     sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
     short_body = " ".join(sentences[:2]).strip()
