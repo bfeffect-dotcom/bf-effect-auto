@@ -22,8 +22,6 @@ OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 RSS_FEEDS = [
     {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
     {"url": "https://www.investing.com/rss/news_14.rss", "source": "Investing.com"},
-    {"url": "https://www.marketwatch.com/rss/topstories", "source": "MarketWatch"},
-    {"url": "https://www.marketwatch.com/rss/marketpulse", "source": "MarketWatch"},
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC,CL=F,GC=F,EURUSD=X&region=US&lang=en-US", "source": "Yahoo Finance"},
     {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "CNBC"},
 ]
@@ -86,6 +84,42 @@ BLACKLIST = [
     "here's what",
     "here’s what"
 ]
+IMPORTANT_TOPICS = [
+    "federal reserve",
+    "fed",
+    "interest rate",
+    "inflation",
+    "cpi",
+    "ppi",
+    "payrolls",
+    "unemployment",
+    "gdp",
+
+    "oil",
+    "brent",
+    "wti",
+    "opec",
+
+    "iran",
+    "israel",
+    "china",
+    "russia",
+    "ukraine",
+    "hormuz",
+    "tariff",
+    "sanctions",
+
+    "nvidia",
+    "apple",
+    "tesla",
+    "microsoft",
+    "amazon",
+    "google",
+    "meta",
+
+    "earnings",
+    "guidance"
+]
 
 def clean_html(text: str) -> str:
     text = re.sub(r"<.*?>", "", text or "")
@@ -116,7 +150,13 @@ def is_market_relevant(title: str, summary: str) -> bool:
     if any(word in text for word in BLACKLIST):
         return False
 
-    return any(word in text for word in KEYWORDS)
+    score = 0
+
+    for word in IMPORTANT_TOPICS:
+        if word in text:
+            score += 1
+
+    return score >= 2
 
 def get_summary(entry) -> str:
     candidates = [
@@ -133,45 +173,76 @@ def get_summary(entry) -> str:
     return ""
 
 def create_post_with_ai(title: str, summary: str, source: str) -> str:
-    prompt = f"""
-Ты редактор русскоязычного Telegram-канала о событиях, которые могут влиять на мировые рынки.
+prompt = f"""
+Ты редактор Telegram-канала «Эффект Бабочки».
 
-Сделай короткую публикацию на русском языке.
+Задача: публиковать только важные мировые события, которые могут быть интересны людям, следящим за экономикой, бизнесом и финансовыми рынками.
 
-Правила:
-- Без инвестиционных советов.
-- Без слов: "влияние", "уровень влияния", "категория", "что двигает рынок".
-- Без эмодзи.
-- Без кликбейта.
-- Заголовок отдельной первой строкой.
-- Потом 2–4 предложения простым человеческим языком.
-- В конце: Источник: {source}
-- Не добавляй ссылку.
-- Не пиши, что это инвестиционная рекомендация.
+ВАЖНО:
+
+Если новость НЕ относится к одной из тем:
+
+- Федеральная резервная система США (Fed)
+- Инфляция (CPI, PPI)
+- Процентные ставки
+- Рынок труда США
+- GDP
+- Центральные банки
+- Нефть
+- OPEC/OPEC+
+- Золото
+- Китай
+- США
+- Россия
+- Украина
+- Израиль
+- Иран
+- Санкции
+- Тарифы
+- Ормузский пролив
+- Nvidia
+- Apple
+- Microsoft
+- Amazon
+- Google
+- Meta
+- Tesla
+- Крупные корпоративные отчеты
+
+Ответь только:
+
+SKIP
+
+СТРОГО ЗАПРЕЩЕНО:
+
+- Придумывать факты.
+- Делать прогнозы.
+- Делать выводы от себя.
+- Писать "это может привести".
+- Писать "аналитики считают".
+- Писать "инвесторам стоит обратить внимание".
+- Писать про возможное влияние на рынок.
+- Использовать кликбейт.
+- Использовать эмодзи.
+
+Используй ТОЛЬКО информацию из новости.
+
+Формат ответа:
+
+Короткий заголовок на русском языке
+
+2-4 предложения пересказа новости простым языком.
+
+Источник: {source}
 
 Новость:
-Title: {title}
+
+Title:
+{title}
 
 Summary:
 {summary}
 """
-
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": OPENROUTER_MODEL,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.3,
-            "max_tokens": 700,
-        },
-        timeout=40,
-    )
 
     if not response.ok:
         print("OpenRouter error:", response.status_code, response.text)
@@ -179,6 +250,10 @@ Summary:
 
     data = response.json()
     return data["choices"][0]["message"]["content"].strip()
+if result.upper().startswith("SKIP"):
+    return ""
+
+return result
 
 def send_message(text: str, link: str) -> bool:
     message = f"{text}\n\n{link}"
