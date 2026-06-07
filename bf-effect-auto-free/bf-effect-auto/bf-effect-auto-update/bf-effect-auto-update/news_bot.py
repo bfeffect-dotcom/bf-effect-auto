@@ -64,6 +64,29 @@ TITLE_REPLACEMENTS = {
     "готовятся к масштабному IPO": "ждут новостей об IPO",
 }
 
+EDITORIAL_TEMPLATES = [
+    {
+        "match": ["chinese-evs", "auto-sales", "manufacturing-us"],
+        "title": "Китайские автопроизводители ищут путь на рынок США",
+        "body": "Китайские производители электромобилей рассматривают способы выхода на американский рынок несмотря на тарифы, регуляторные ограничения и политическое сопротивление. Тема важна для автопрома США, торговой политики и конкуренции на рынке электромобилей.",
+    },
+    {
+        "match": ["iran-war-100-days"],
+        "title": "Иранский конфликт остается фактором риска для рынков",
+        "body": "Конфликт приближается к сотому дню, а переговоры пока не дают устойчивого результата. Для рынков ключевыми остаются риски вокруг нефти, облигаций, защитных активов и общей геополитической неопределенности.",
+    },
+    {
+        "match": ["inflation-iran-war-consumer-economy-electronics"],
+        "title": "Дефицит материалов может повысить стоимость электроники",
+        "body": "Проблемы с поставками материалов, используемых в производстве электроники, могут усилить ценовое давление на потребительские устройства. Речь идет о компонентах, которые применяются в смартфонах и другой массовой технике.",
+    },
+    {
+        "match": ["google-to-pay-spacex", "xai-compute-capacity"],
+        "title": "Google арендует вычислительные мощности xAI через SpaceX",
+        "body": "Google заключила соглашение, связанное с использованием вычислительной инфраструктуры xAI. Сделка подчеркивает рост спроса на AI-инфраструктуру и дата-центры среди крупнейших технологических компаний.",
+    },
+]
+
 
 def clean_html(text: str) -> str:
     text = re.sub(r"<.*?>", "", text or "")
@@ -143,17 +166,46 @@ def normalize_title(title: str) -> str:
     return title.strip()
 
 
-def build_post(title: str, summary: str, source: str) -> str:
+def is_similar_text(a: str, b: str) -> bool:
+    a_words = {w.lower() for w in re.findall(r"[А-Яа-яA-Za-z0-9]+", a) if len(w) > 4}
+    b_words = {w.lower() for w in re.findall(r"[А-Яа-яA-Za-z0-9]+", b) if len(w) > 4}
+    if not a_words or not b_words:
+        return False
+    return len(a_words.intersection(b_words)) >= 2
+
+
+def editorial_post(title: str, summary: str, link: str, source: str) -> str:
+    text = f"{title} {summary} {link}".lower()
+    for template in EDITORIAL_TEMPLATES:
+        if any(token in text for token in template["match"]):
+            return f"{template['title']}\n\n{template['body']}\n\nИсточник: {source}"
+    return ""
+
+
+def build_post(title: str, summary: str, link: str, source: str) -> str:
+    manual_post = editorial_post(title, summary, link, source)
+    if manual_post:
+        return manual_post
+
     title_ru = normalize_title(shorten(translate_to_ru(title), 115))
-    summary_ru = shorten(translate_to_ru(summary), 360)
+    summary_ru = shorten(translate_to_ru(summary), 520)
 
     combined_ru = f"{title_ru} {summary_ru}".lower()
     if any(phrase in combined_ru for phrase in BAD_RU_PHRASES):
         return ""
 
     sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
-    short_body = " ".join(sentences[:2]).strip() or summary_ru
+    sentences = [s.strip() for s in sentences if s.strip()]
 
+    if len(sentences) > 1 and is_similar_text(title_ru, sentences[0]):
+        short_body = " ".join(sentences[1:3]).strip()
+    else:
+        short_body = " ".join(sentences[:2]).strip()
+
+    if len(short_body) < 40:
+        short_body = summary_ru
+
+    short_body = shorten(short_body, 420)
     return f"{title_ru}\n\n{short_body}\n\nИсточник: {source}"
 
 
@@ -214,7 +266,7 @@ def main() -> None:
             continue
         if published >= MAX_POSTS_PER_RUN:
             break
-        post_text = build_post(item["title"], item["summary"], item["source"])
+        post_text = build_post(item["title"], item["summary"], item["link"], item["source"])
         if not post_text:
             continue
         if send_message(post_text, item["link"]):
