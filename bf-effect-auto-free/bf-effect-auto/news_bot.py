@@ -174,15 +174,22 @@ Summary: {summary}
     )
 
     if not response.ok:
-        print("OpenRouter error:", response.status_code, response.text)
+        print("OpenRouter HTTP error:", response.status_code, response.text)
         return ""
 
-    data = response.json()
-    result = data["choices"][0]["message"]["content"].strip()
+    try:
+        data = response.json()
+    except Exception as e:
+        print("OpenRouter JSON parse error:", e, response.text[:500])
+        return ""
 
+    if "choices" not in data:
+        print("OpenRouter response without choices:", json.dumps(data, ensure_ascii=False)[:1000])
+        return ""
+
+    result = data["choices"][0]["message"]["content"].strip()
     if result.upper().startswith("SKIP"):
         return ""
-
     return result
 
 
