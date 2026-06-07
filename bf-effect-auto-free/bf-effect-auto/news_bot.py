@@ -29,13 +29,62 @@ RSS_FEEDS = [
 ]
 
 KEYWORDS = [
-    "inflation", "cpi", "ppi", "fed", "federal reserve", "interest rate", "rates",
-    "recession", "gdp", "jobs", "payrolls", "unemployment", "economy", "central bank",
-    "oil", "brent", "wti", "opec", "gas", "gold", "energy", "crude",
-    "sanctions", "tariff", "iran", "china", "russia", "israel", "hormuz", "conflict",
-    "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta",
-    "earnings", "guidance", "profit", "revenue",
-    "stocks", "market", "nasdaq", "s&p", "dow", "yields", "dollar", "euro", "vix",
+    "federal reserve",
+    "fed",
+    "interest rate",
+    "rate cut",
+    "rate hike",
+    "inflation",
+    "cpi",
+    "ppi",
+    "payrolls",
+    "unemployment",
+    "gdp",
+    "ecb",
+
+    "oil",
+    "brent",
+    "wti",
+    "opec",
+    "gold",
+
+    "iran",
+    "israel",
+    "china",
+    "russia",
+    "ukraine",
+    "hormuz",
+    "tariff",
+    "sanctions",
+
+    "nvidia",
+    "apple",
+    "tesla",
+    "microsoft",
+    "amazon",
+    "google",
+    "meta",
+
+    "earnings",
+    "guidance"
+]
+BLACKLIST = [
+    "retirement",
+    "retirees",
+    "retirement community",
+    "advisor",
+    "advisers",
+    "robo-advisor",
+    "stock picking",
+    "personal finance",
+    "mortgage",
+    "credit card",
+    "housing",
+    "real estate",
+    "buy-in",
+    "how to",
+    "here's what",
+    "here’s what"
 ]
 
 def clean_html(text: str) -> str:
@@ -63,6 +112,10 @@ def item_id(title: str, link: str) -> str:
 
 def is_market_relevant(title: str, summary: str) -> bool:
     text = f"{title} {summary}".lower()
+
+    if any(word in text for word in BLACKLIST):
+        return False
+
     return any(word in text for word in KEYWORDS)
 
 def get_summary(entry) -> str:
@@ -115,7 +168,7 @@ Summary:
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.3,
-            "max_tokens": 350,
+            "max_tokens": 700,
         },
         timeout=40,
     )
