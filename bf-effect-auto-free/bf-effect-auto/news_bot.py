@@ -8,16 +8,13 @@ from typing import Dict, List
 
 import feedparser
 import requests
+from deep_translator import GoogleTranslator
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-
 CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@bf_effect_news")
 STATE_FILE = Path("posted_news.json")
 MAX_POSTS_PER_RUN = 3
 MIN_SUMMARY_LENGTH = 60
-
-OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 RSS_FEEDS = [
     {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
@@ -30,9 +27,7 @@ IMPORTANT_TOPICS = [
     "federal reserve", "fed", "interest rate", "rate cut", "rate hike",
     "inflation", "cpi", "ppi", "payrolls", "unemployment", "gdp", "ecb",
     "oil", "brent", "wti", "opec", "gold", "gas",
-    "china", "tariff", "sanctions", "iran", "israel", "ukraine", "russia",
     "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta",
-    "ai", "artificial intelligence", "semiconductor", "memory", "chip",
     "earnings", "guidance", "revenue forecast", "oracle", "spacex",
 ]
 
@@ -41,6 +36,8 @@ BLACKLIST = [
     "robo-advisor", "stock picking", "personal finance", "mortgage",
     "credit card", "housing", "real estate", "buy-in", "how to",
     "here's what", "here’s what", "opinion", "column", "watchlist",
+    "etf", "etfs", "ways to play", "motley fool", "fool.com",
+    "analyst", "analysts", "compare", "comparison",
 ]
 
 
@@ -49,6 +46,16 @@ def clean_html(text: str) -> str:
     text = re.sub(r"&nbsp;", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def translate_to_ru(text: str) -> str:
+    if not text:
+        return ""
+    try:
+        return GoogleTranslator(source="auto", target="ru").translate(text)
+    except Exception as e:
+        print("Translation error:", e)
+        return text
 
 
 def load_posted_ids() -> set:
@@ -71,12 +78,12 @@ def item_id(title: str, link: str) -> str:
     return hashlib.sha256(f"{title}|{link}".encode("utf-8")).hexdigest()
 
 
-def is_market_relevant(title: str, summary: str) -> bool:
-    text = f"{title} {summary}".lower()
+def is_market_relevant(title: str, summary: str, link: str) -> bool:
+    text = f"{title} {summary} {link}".lower()
     if any(word in text for word in BLACKLIST):
         return False
     score = sum(1 for word in IMPORTANT_TOPICS if word in text)
-    return score >= 1
+    return score >= 2
 
 
 def get_summary(entry) -> str:
@@ -92,74 +99,24 @@ def get_summary(entry) -> str:
     return ""
 
 
-def create_post_with_ai(title: str, summary: str, source: str) -> str:
-    prompt = f"""
-Ты редактор Telegram-канала «Эффект Бабочки».
+def shorten(text: str, limit: int) -> str:
+    text = clean_html(text)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(".,;:") + "."
 
-Сделай короткую публикацию на русском языке только по фактам из новости.
 
-Если новость не относится к макроэкономике, центральным банкам, инфляции, ставкам, нефти, золоту, геополитике, крупным технологическим компаниям или их отчетности, ответь только: SKIP
+def build_post(title: str, summary: str, source: str) -> str:
+    title_ru = shorten(translate_to_ru(title), 120)
+    summary_ru = shorten(translate_to_ru(summary), 420)
 
-Правила:
-- Не придумывай факты.
-- Не используй информацию, которой нет в новости.
-- Не давай инвестиционных советов.
-- Не используй эмодзи.
-- Не используй кликбейт.
-- Не делай прогнозов.
-- Не добавляй общие выводы от себя.
-- Не повторяй одну и ту же мысль разными словами.
-- Не используй слова: влияние, уровень влияния, категория, что двигает рынок.
-- Максимум 650 символов.
+    sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
+    short_body = " ".join(sentences[:2]).strip()
+    if not short_body:
+        short_body = summary_ru
 
-Формат:
-Заголовок
-
-2 коротких предложения по сути новости.
-
-• факт
-• факт
-• факт
-
-Источник: {source}
-
-Title: {title}
-Summary: {summary}
-"""
-
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": OPENROUTER_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2,
-            "max_tokens": 650,
-        },
-        timeout=60,
-    )
-
-    if not response.ok:
-        print("OpenRouter HTTP error:", response.status_code, response.text)
-        return ""
-
-    try:
-        data = response.json()
-    except Exception as e:
-        print("OpenRouter JSON parse error:", e, response.text[:500])
-        return ""
-
-    if "choices" not in data:
-        print("OpenRouter response without choices:", json.dumps(data, ensure_ascii=False)[:1000])
-        return ""
-
-    result = data["choices"][0]["message"]["content"].strip()
-    if result.upper().startswith("SKIP"):
-        return ""
-    return result
+    return f"{title_ru}\n\n{short_body}\n\nИсточник: {source}"
 
 
 def send_message(text: str, link: str) -> bool:
@@ -192,7 +149,7 @@ def collect_news() -> List[Dict]:
             summary = get_summary(entry)
             if not title or not link or not summary:
                 continue
-            if not is_market_relevant(title, summary):
+            if not is_market_relevant(title, summary, link):
                 continue
             uid = item_id(title, link)
             if uid in seen_ids:
@@ -219,11 +176,7 @@ def main() -> None:
             continue
         if published >= MAX_POSTS_PER_RUN:
             break
-        post_text = create_post_with_ai(
-            title=item["title"],
-            summary=item["summary"],
-            source=item["source"],
-        )
+        post_text = build_post(item["title"], item["summary"], item["source"])
         if not post_text:
             continue
         if send_message(post_text, item["link"]):
