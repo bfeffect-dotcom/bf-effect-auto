@@ -11,6 +11,9 @@ import requests
 from deep_translator import GoogleTranslator
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+
 CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@bf_effect_news")
 STATE_FILE = Path("posted_news.json")
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "3"))
@@ -57,35 +60,17 @@ BAD_RU_PHRASES = [
     "рынок реагирует", "готовятся к масштабному ipo", "так или иначе",
 ]
 
+BAD_AI_PATTERNS = [
+    "The user wants", "I need to", "Draft", "Check constraints", "Input:",
+    "Output:", "Title:", "Summary:", "Reasoning", "Let's", "Here is",
+]
+
 TITLE_REPLACEMENTS = {
     "Китайские электромобили могут появиться в США в течение нескольких лет, так или иначе": "Китайские электромобили могут выйти на рынок США несмотря на тарифы",
     "Акции шатаются": "Рынки ждут ключевых событий",
     "что смотреть на этой неделе": "ключевые события недели",
     "готовятся к масштабному IPO": "ждут новостей об IPO",
 }
-
-EDITORIAL_TEMPLATES = [
-    {
-        "match": ["chinese-evs", "auto-sales", "manufacturing-us"],
-        "title": "Китайские автопроизводители ищут путь на рынок США",
-        "body": "Китайские производители электромобилей рассматривают способы выхода на американский рынок несмотря на тарифы, регуляторные ограничения и политическое сопротивление. Тема важна для автопрома США, торговой политики и конкуренции на рынке электромобилей.",
-    },
-    {
-        "match": ["iran-war-100-days"],
-        "title": "Иранский конфликт остается фактором риска для рынков",
-        "body": "Конфликт приближается к сотому дню, а переговоры пока не дают устойчивого результата. Для рынков ключевыми остаются риски вокруг нефти, облигаций, защитных активов и общей геополитической неопределенности.",
-    },
-    {
-        "match": ["inflation-iran-war-consumer-economy-electronics"],
-        "title": "Дефицит материалов может повысить стоимость электроники",
-        "body": "Проблемы с поставками материалов, используемых в производстве электроники, могут усилить ценовое давление на потребительские устройства. Речь идет о компонентах, которые применяются в смартфонах и другой массовой технике.",
-    },
-    {
-        "match": ["google-to-pay-spacex", "xai-compute-capacity"],
-        "title": "Google арендует вычислительные мощности xAI через SpaceX",
-        "body": "Google заключила соглашение, связанное с использованием вычислительной инфраструктуры xAI. Сделка подчеркивает рост спроса на AI-инфраструктуру и дата-центры среди крупнейших технологических компаний.",
-    },
-]
 
 
 def clean_html(text: str) -> str:
@@ -166,27 +151,95 @@ def normalize_title(title: str) -> str:
     return title.strip()
 
 
-def is_similar_text(a: str, b: str) -> bool:
-    a_words = {w.lower() for w in re.findall(r"[А-Яа-яA-Za-z0-9]+", a) if len(w) > 4}
-    b_words = {w.lower() for w in re.findall(r"[А-Яа-яA-Za-z0-9]+", b) if len(w) > 4}
-    if not a_words or not b_words:
+def is_valid_ai_post(text: str) -> bool:
+    if not text:
         return False
-    return len(a_words.intersection(b_words)) >= 2
+    if text.upper().startswith("SKIP"):
+        return False
+    if any(pattern in text for pattern in BAD_AI_PATTERNS):
+        return False
+    if "```" in text:
+        return False
+    if "Источник:" not in text:
+        return False
+    return True
 
 
-def editorial_post(title: str, summary: str, link: str, source: str) -> str:
-    text = f"{title} {summary} {link}".lower()
-    for template in EDITORIAL_TEMPLATES:
-        if any(token in text for token in template["match"]):
-            return f"{template['title']}\n\n{template['body']}\n\nИсточник: {source}"
-    return ""
+def create_ai_post(title: str, summary: str, source: str) -> str:
+    if not OPENROUTER_API_KEY:
+        return ""
+
+    prompt = f"""
+Ты финансовый редактор Telegram-канала на русском языке.
+
+Сделай готовую публикацию по новости.
+
+Задача:
+1. Первая строка — понятный заголовок.
+2. Далее 2 коротких абзаца:
+   - что произошло;
+   - почему это важно для экономики, рынков, бизнеса, сырья или технологий.
+3. В конце: Источник: {source}
+
+Правила:
+- Пиши просто и понятно для подписчиков.
+- Не давай советов и торговых сигналов.
+- Не придумывай цифры и факты, которых нет в новости.
+- Можно объяснить возможную связь с рынками, но без прогнозов.
+- Не используй эмодзи.
+- Не используй слова: рекомендация, покупайте, продавайте, гарантирует.
+- Не пиши рассуждения о задаче, только готовый пост.
+- До 700 символов.
+
+Новость:
+{title}
+
+Описание:
+{summary}
+"""
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.2,
+                "max_tokens": 650,
+            },
+            timeout=60,
+        )
+    except Exception as e:
+        print("OpenRouter request error:", e)
+        return ""
+
+    if not response.ok:
+        print("OpenRouter HTTP error:", response.status_code, response.text[:500])
+        return ""
+
+    try:
+        data = response.json()
+        result = data["choices"][0]["message"].get("content", "").strip()
+    except Exception as e:
+        print("OpenRouter parse error:", e, response.text[:500])
+        return ""
+
+    result = clean_html(result)
+    if len(result) > 900:
+        result = shorten(result, 900)
+
+    if not is_valid_ai_post(result):
+        print("AI post rejected")
+        return ""
+
+    return result
 
 
-def build_post(title: str, summary: str, link: str, source: str) -> str:
-    manual_post = editorial_post(title, summary, link, source)
-    if manual_post:
-        return manual_post
-
+def build_fallback_post(title: str, summary: str, source: str) -> str:
     title_ru = normalize_title(shorten(translate_to_ru(title), 115))
     summary_ru = shorten(translate_to_ru(summary), 520)
 
@@ -196,17 +249,17 @@ def build_post(title: str, summary: str, link: str, source: str) -> str:
 
     sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
     sentences = [s.strip() for s in sentences if s.strip()]
-
-    if len(sentences) > 1 and is_similar_text(title_ru, sentences[0]):
-        short_body = " ".join(sentences[1:3]).strip()
-    else:
-        short_body = " ".join(sentences[:2]).strip()
-
-    if len(short_body) < 40:
-        short_body = summary_ru
+    short_body = " ".join(sentences[:2]).strip() or summary_ru
 
     short_body = shorten(short_body, 420)
     return f"{title_ru}\n\n{short_body}\n\nИсточник: {source}"
+
+
+def build_post(title: str, summary: str, link: str, source: str) -> str:
+    ai_post = create_ai_post(title, summary, source)
+    if ai_post:
+        return ai_post
+    return build_fallback_post(title, summary, source)
 
 
 def send_message(text: str, link: str) -> bool:
