@@ -17,7 +17,7 @@ STATE_FILE = Path("posted_news.json")
 MAX_POSTS_PER_RUN = 3
 MIN_SUMMARY_LENGTH = 60
 
-OPENROUTER_MODEL = "deepseek/deepseek-chat-v3.1:free"
+OPENROUTER_MODEL = OPENROUTER_MODEL = "qwen/qwen3-4b:free"
 
 RSS_FEEDS = [
     {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
