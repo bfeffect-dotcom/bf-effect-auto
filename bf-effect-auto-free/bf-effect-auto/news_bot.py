@@ -33,14 +33,14 @@ IMPORTANT_TOPICS = [
     "china", "tariff", "sanctions", "iran", "israel", "ukraine", "russia",
     "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta",
     "ai", "artificial intelligence", "semiconductor", "memory", "chip",
-    "earnings", "guidance", "revenue forecast",
+    "earnings", "guidance", "revenue forecast", "oracle", "spacex",
 ]
 
 BLACKLIST = [
     "retirement", "retirees", "retirement community", "advisor", "advisers",
     "robo-advisor", "stock picking", "personal finance", "mortgage",
     "credit card", "housing", "real estate", "buy-in", "how to",
-    "here's what", "here’s what",
+    "here's what", "here’s what", "opinion", "column", "watchlist",
 ]
 
 
@@ -76,7 +76,7 @@ def is_market_relevant(title: str, summary: str) -> bool:
     if any(word in text for word in BLACKLIST):
         return False
     score = sum(1 for word in IMPORTANT_TOPICS if word in text)
-    return score >= 2
+    return score >= 1
 
 
 def get_summary(entry) -> str:
@@ -96,39 +96,9 @@ def create_post_with_ai(title: str, summary: str, source: str) -> str:
     prompt = f"""
 Ты редактор Telegram-канала «Эффект Бабочки».
 
-Твоя задача — превращать важные мировые новости в качественные публикации для Telegram.
+Сделай короткую публикацию на русском языке только по фактам из новости.
 
-Если новость не относится к одной из тем:
-- экономика США;
-- инфляция;
-- процентные ставки;
-- центральные банки;
-- рынок труда;
-- нефть;
-- газ;
-- золото;
-- OPEC/OPEC+;
-- Китай;
-- США;
-- Россия;
-- Украина;
-- Израиль;
-- Иран;
-- санкции;
-- тарифы;
-- технологии;
-- искусственный интеллект;
-- Nvidia;
-- Apple;
-- Microsoft;
-- Amazon;
-- Google;
-- Meta;
-- Tesla;
-- корпоративная отчетность крупных компаний;
-
-ответь только:
-SKIP
+Если новость не относится к макроэкономике, центральным банкам, инфляции, ставкам, нефти, золоту, геополитике, крупным технологическим компаниям или их отчетности, ответь только: SKIP
 
 Правила:
 - Не придумывай факты.
@@ -136,24 +106,23 @@ SKIP
 - Не давай инвестиционных советов.
 - Не используй эмодзи.
 - Не используй кликбейт.
-- Пиши живым русским языком.
-- Текст должен выглядеть как публикация крупного Telegram-канала.
+- Не делай прогнозов.
+- Не добавляй общие выводы от себя.
+- Не повторяй одну и ту же мысль разными словами.
+- Не используй слова: влияние, уровень влияния, категория, что двигает рынок.
+- Максимум 650 символов.
 
 Формат:
 Заголовок
 
-1–2 предложения краткого объяснения сути события.
+2 коротких предложения по сути новости.
 
-— Факт №1;
-— Факт №2;
-— Факт №3;
-— Факт №4.
-
-Если есть важный контекст, добавь ещё одно короткое предложение после списка.
+• факт
+• факт
+• факт
 
 Источник: {source}
 
-Новость:
 Title: {title}
 Summary: {summary}
 """
@@ -168,7 +137,7 @@ Summary: {summary}
             "model": OPENROUTER_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2,
-            "max_tokens": 900,
+            "max_tokens": 650,
         },
         timeout=60,
     )
@@ -217,7 +186,7 @@ def collect_news() -> List[Dict]:
     for feed in RSS_FEEDS:
         parsed = feedparser.parse(feed["url"])
         print(f"Feed {feed['source']}: {len(parsed.entries)} entries")
-        for entry in parsed.entries[:12]:
+        for entry in parsed.entries[:15]:
             title = clean_html(getattr(entry, "title", ""))
             link = getattr(entry, "link", "").strip()
             summary = get_summary(entry)
