@@ -168,7 +168,6 @@ def is_valid_ai_post(text: str) -> bool:
 def create_ai_post(title: str, summary: str, source: str) -> str:
     if not OPENROUTER_API_KEY:
         return ""
-
 prompt = f"""
 Сделай короткий русский Telegram-пост по новости.
 
@@ -187,7 +186,6 @@ prompt = f"""
 Новость: {title}
 Описание: {summary}
 """
-
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
