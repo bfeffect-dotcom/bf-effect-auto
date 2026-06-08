@@ -299,28 +299,43 @@ def collect_news() -> List[Dict]:
 
 def main() -> None:
     print("Run started:", datetime.now(timezone.utc).isoformat())
+
     posted_ids = load_posted_ids()
     news = collect_news()
+
     published = 0
     published_sources = set()
-    print(f"Collected relevant news: {len(news)}")
-    for item in news:
-        for item in news:
-    if item["id"] in posted_ids:
-        continue
 
-    if item["source"] in published_sources:
-        continue
+    print(f"Collected relevant news: {len(news)}")
+
+    for item in news:
+
+        if item["id"] in posted_ids:
+            continue
+
+        if item["source"] in published_sources:
+            continue
+
         if published >= MAX_POSTS_PER_RUN:
             break
-        post_text = build_post(item["title"], item["summary"], item["link"], item["source"])
+
+        post_text = build_post(
+            item["title"],
+            item["summary"],
+            item["link"],
+            item["source"]
+        )
+
         if not post_text:
             continue
+
         if send_message(post_text, item["link"]):
-    posted_ids.add(item["id"])
-    published_sources.add(item["source"])
-    published += 1
+            posted_ids.add(item["id"])
+            published_sources.add(item["source"])
+            published += 1
+
     save_posted_ids(posted_ids)
+
     print(f"Published: {published}")
 
 
