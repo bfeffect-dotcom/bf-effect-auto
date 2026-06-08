@@ -22,8 +22,20 @@ MIN_SUMMARY_LENGTH = 60
 RSS_FEEDS = [
     {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
     {"url": "https://www.investing.com/rss/news_14.rss", "source": "Investing.com"},
+
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC,CL=F,GC=F,EURUSD=X&region=US&lang=en-US", "source": "Yahoo Finance"},
+
     {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "CNBC"},
+
+    {"url": "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", "source": "MarketWatch"},
+    {"url": "https://feeds.content.dowjones.io/public/rss/mw_topstories", "source": "MarketWatch"},
+
+    {"url": "https://www.ft.com/rss/home", "source": "Financial Times"},
+
+    {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "source": "Wall Street Journal"},
+    {"url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "source": "Wall Street Journal"},
+
+    {"url": "https://www.politico.com/rss/politics08.xml", "source": "Politico"},
 ]
 
 STRONG_TOPICS = [
