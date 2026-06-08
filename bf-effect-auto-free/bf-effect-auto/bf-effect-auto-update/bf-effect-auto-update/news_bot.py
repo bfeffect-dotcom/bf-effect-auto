@@ -16,7 +16,7 @@ OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-5
 
 CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@bf_effect_news")
 STATE_FILE = Path("posted_news.json")
-MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "3"))
+MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "5"))
 MIN_SUMMARY_LENGTH = 60
 
 RSS_FEEDS = [
@@ -34,8 +34,8 @@ RSS_FEEDS = [
 
     {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "source": "Wall Street Journal"},
     {"url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "source": "Wall Street Journal"},
-
-    {"url": "https://www.politico.com/rss/politics08.xml", "source": "Politico"},
+  
+    {"url": "https://rss.politico.com/politics-news.xml", "source": "Politico"},
 ]
 
 STRONG_TOPICS = [
