@@ -22,19 +22,13 @@ MIN_SUMMARY_LENGTH = 60
 RSS_FEEDS = [
     {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
     {"url": "https://www.investing.com/rss/news_14.rss", "source": "Investing.com"},
-
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EIXIC,CL=F,GC=F,EURUSD=X&region=US&lang=en-US", "source": "Yahoo Finance"},
-
     {"url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "source": "CNBC"},
-
     {"url": "https://feeds.content.dowjones.io/public/rss/mw_marketpulse", "source": "MarketWatch"},
     {"url": "https://feeds.content.dowjones.io/public/rss/mw_topstories", "source": "MarketWatch"},
-
     {"url": "https://www.ft.com/rss/home", "source": "Financial Times"},
-
     {"url": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "source": "Wall Street Journal"},
     {"url": "https://feeds.a.dj.com/rss/RSSWorldNews.xml", "source": "Wall Street Journal"},
-  
     {"url": "https://rss.politico.com/politics-news.xml", "source": "Politico"},
 ]
 
@@ -42,47 +36,33 @@ STRONG_TOPICS = [
     "federal reserve", "fed", "interest rate", "rate cut", "rate hike",
     "inflation", "cpi", "ppi", "payrolls", "unemployment", "gdp", "ecb",
     "oil", "brent", "wti", "opec", "gold", "gas",
-    "tariff", "tariffs", "sanctions", "iran", "israel", "ukraine", "russia", "hormuz",
+    "tariff", "tariffs", "sanctions", "iran", "israel", "ukraine", "russia", "hormuz", "china",
 ]
 
 COMPANY_TOPICS = [
-    "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "meta", "oracle", "spacex",
+    "nvidia", "apple", "tesla", "microsoft", "amazon", "google", "alphabet", "meta", "oracle", "spacex",
 ]
 
 COMPANY_EVENT_WORDS = [
-    "earnings", "results", "guidance", "forecast", "revenue forecast", "ipo",
+    "earnings", "results", "guidance", "forecast", "revenue", "profit", "ipo",
     "deal", "agreement", "contract", "partnership", "acquisition", "merger",
     "buyout", "layoffs", "antitrust", "regulator", "sec", "ftc",
 ]
 
 BLACKLIST = [
     "retirement", "retirees", "retirement community", "advisor", "advisers",
-    "robo-advisor", "stock picking", "personal finance", "mortgage",
-    "credit card", "housing", "real estate", "buy-in", "how to",
-    "here's what", "here’s what", "opinion", "column", "watchlist",
-    "etf", "etfs", "ways to play", "motley fool", "fool.com",
-    "compare", "comparison", "what to watch", "watch this week", "this week",
-    "week ahead", "weekly", "outlook", "market outlook", "preview",
-    "analyst says", "analysts say", "wall street says", "wall street gauges",
-    "investing strategy", "portfolio", "best stocks", "top stocks",
-]
-
-BAD_RU_PHRASES = [
-    "акции шатаются", "что смотреть", "на этой неделе", "инвесторы ждут",
-    "рынок реагирует", "готовятся к масштабному ipo", "так или иначе",
+    "robo-advisor", "stock picking", "personal finance", "mortgage", "credit card",
+    "housing", "real estate", "buy-in", "how to", "here's what", "here’s what",
+    "opinion", "column", "watchlist", "etf", "etfs", "ways to play", "motley fool", "fool.com",
+    "compare", "comparison", "what to watch", "watch this week", "this week", "week ahead",
+    "weekly", "outlook", "market outlook", "preview", "analyst says", "analysts say",
+    "wall street says", "wall street gauges", "investing strategy", "portfolio", "best stocks", "top stocks",
 ]
 
 BAD_AI_PATTERNS = [
-    "The user wants", "I need to", "Draft", "Check constraints", "Input:",
-    "Output:", "Title:", "Summary:", "Reasoning", "Let's", "Here is",
+    "The user", "I need", "Draft", "Check constraints", "Input:", "Output:", "Title:",
+    "Summary:", "Reasoning", "Let's", "Here is", "```",
 ]
-
-TITLE_REPLACEMENTS = {
-    "Китайские электромобили могут появиться в США в течение нескольких лет, так или иначе": "Китайские электромобили могут выйти на рынок США несмотря на тарифы",
-    "Акции шатаются": "Рынки ждут ключевых событий",
-    "что смотреть на этой неделе": "ключевые события недели",
-    "готовятся к масштабному IPO": "ждут новостей об IPO",
-}
 
 
 def clean_html(text: str) -> str:
@@ -157,22 +137,14 @@ def shorten(text: str, limit: int) -> str:
     return cut.rstrip(".,;:") + "."
 
 
-def normalize_title(title: str) -> str:
-    for old, new in TITLE_REPLACEMENTS.items():
-        title = title.replace(old, new)
-    return title.strip()
-
-
 def is_valid_ai_post(text: str) -> bool:
     if not text:
         return False
-    if text.upper().startswith("SKIP"):
-        return False
     if any(pattern in text for pattern in BAD_AI_PATTERNS):
         return False
-    if "```" in text:
-        return False
     if "Источник:" not in text:
+        return False
+    if len(text) > 1300:
         return False
     return True
 
@@ -180,25 +152,42 @@ def is_valid_ai_post(text: str) -> bool:
 def create_ai_post(title: str, summary: str, source: str) -> str:
     if not OPENROUTER_API_KEY:
         return ""
-        
+
     prompt = f"""
-    Сделай короткий русский Telegram-пост по новости.
+Ты редактор русскоязычного Telegram-канала о рынках, экономике, технологиях и геополитике.
 
-    Верни только JSON:
-    {{"title":"...","fact":"...","why":"..."}}
+Сделай готовую публикацию по новости. Верни только текст поста, без JSON, без markdown и без объяснений.
 
-    Правила:
-    - title: короткий заголовок.
-    - fact: 1-2 предложения только о том, что произошло.
-    - why: 1 предложение, почему это важно для экономики, бизнеса, сырья или технологий.
-    - Без длинной аналитики.
-    - Без прогнозов.
-    - Не добавляй факты, которых нет в новости.
-    - Не используй markdown.
+Формат строго такой:
 
-    Новость: {title}
-    Описание: {summary}
-    """
+[Сильный заголовок и суть новости в 1-2 предложениях.]
+
+Ключевые детали:
+— факт;
+— факт;
+— факт.
+
+Почему это важно:
+[1-2 коротких предложения простым языком: на что это может повлиять — цены, компании, сырье, инфляция, технологии, логистика или рынок.]
+
+Источник: {source}
+
+Правила:
+- Пиши понятно для обычного подписчика.
+- Не используй эмодзи.
+- Не давай личных указаний читателю.
+- Не придумывай факты, цифры, компании и прогнозы, которых нет в новости.
+- Если фактов мало, сделай 2 пункта, но не выдумывай.
+- Не пиши обрывочные фразы.
+- Не больше 1100 символов.
+
+Новость:
+{title}
+
+Описание:
+{summary}
+"""
+
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -209,8 +198,8 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
             json={
                 "model": OPENROUTER_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
-                "max_tokens": 420,
+                "temperature": 0.15,
+                "max_tokens": 900,
             },
             timeout=60,
         )
@@ -230,8 +219,6 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
         return ""
 
     result = clean_html(result)
-    if len(result) > 900:
-        result = shorten(result, 900)
 
     if not is_valid_ai_post(result):
         print("AI post rejected")
@@ -241,19 +228,9 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
 
 
 def build_fallback_post(title: str, summary: str, source: str) -> str:
-    title_ru = normalize_title(shorten(translate_to_ru(title), 115))
+    title_ru = shorten(translate_to_ru(title), 115)
     summary_ru = shorten(translate_to_ru(summary), 520)
-
-    combined_ru = f"{title_ru} {summary_ru}".lower()
-    if any(phrase in combined_ru for phrase in BAD_RU_PHRASES):
-        return ""
-
-    sentences = re.split(r"(?<=[.!?])\s+", summary_ru)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    short_body = " ".join(sentences[:2]).strip() or summary_ru
-
-    short_body = shorten(short_body, 420)
-    return f"{title_ru}\n\n{short_body}\n\nИсточник: {source}"
+    return f"{title_ru}\n\n{summary_ru}\n\nИсточник: {source}"
 
 
 def build_post(title: str, summary: str, link: str, source: str) -> str:
@@ -291,13 +268,16 @@ def collect_news() -> List[Dict]:
             title = clean_html(getattr(entry, "title", ""))
             link = getattr(entry, "link", "").strip()
             summary = get_summary(entry)
+
             if not title or not link or not summary:
                 continue
             if not is_market_relevant(title, summary, link):
                 continue
+
             uid = item_id(title, link)
             if uid in seen_ids:
                 continue
+
             seen_ids.add(uid)
             results.append({
                 "id": uid,
@@ -311,32 +291,22 @@ def collect_news() -> List[Dict]:
 
 def main() -> None:
     print("Run started:", datetime.now(timezone.utc).isoformat())
-
     posted_ids = load_posted_ids()
     news = collect_news()
-
     published = 0
     published_sources = set()
 
     print(f"Collected relevant news: {len(news)}")
 
     for item in news:
-
         if item["id"] in posted_ids:
             continue
-
         if item["source"] in published_sources:
             continue
-
         if published >= MAX_POSTS_PER_RUN:
             break
 
-        post_text = build_post(
-            item["title"],
-            item["summary"],
-            item["link"],
-            item["source"]
-        )
+        post_text = build_post(item["title"], item["summary"], item["link"], item["source"])
 
         if not post_text:
             continue
@@ -347,7 +317,6 @@ def main() -> None:
             published += 1
 
     save_posted_ids(posted_ids)
-
     print(f"Published: {published}")
 
 
