@@ -217,6 +217,7 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
 - Если фактов мало, сделай 2 пункта, но не выдумывай.
 - Не пиши обрывочные фразы.
 - Не больше 1100 символов.
+- - Запрещено добавлять IPO, выручку, прибыль, капитализацию, сделки, причины или историю компании, если этого нет в новости.
 
 Новость:
 {title}
@@ -235,7 +236,7 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
             json={
                 "model": OPENROUTER_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.12,
+                "temperature": 0.0,
                 "max_tokens": 900,
             },
             timeout=60,
@@ -271,10 +272,7 @@ def build_fallback_post(title: str, summary: str, source: str) -> str:
 
 
 def build_post(title: str, summary: str, link: str, source: str) -> str:
-    ai_post = create_ai_post(title, summary, source)
-    if ai_post:
-        return ai_post
-    return build_fallback_post(title, summary, source)
+    return create_ai_post(title, summary, source)
 
 
 def send_message(text: str, link: str) -> bool:
