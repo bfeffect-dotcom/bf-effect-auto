@@ -5,6 +5,9 @@ on:
     - cron: '0 */4 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -27,3 +30,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python bf-effect-auto-free/bf-effect-auto/bf-effect-auto-update/bf-effect-auto-update/news_bot.py
+
+      - name: Save posted news state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add posted_news.json
+          git diff --cached --quiet || git commit -m "Update posted news state"
+          git push
