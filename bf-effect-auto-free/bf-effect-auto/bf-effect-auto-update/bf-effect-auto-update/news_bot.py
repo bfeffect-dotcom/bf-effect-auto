@@ -12,7 +12,7 @@ from deep_translator import GoogleTranslator
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
 
 CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@bf_effect_news")
 STATE_FILE = Path("posted_news.json")
