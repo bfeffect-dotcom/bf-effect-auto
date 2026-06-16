@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -18,6 +19,7 @@ CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@bf_effect_news")
 STATE_FILE = Path("posted_news.json")
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "5"))
 MIN_SUMMARY_LENGTH = 60
+MAX_NEWS_AGE_DAYS = int(os.getenv("MAX_NEWS_AGE_DAYS", "3"))
 
 RSS_FEEDS = [
     {"url": "https://www.investing.com/rss/news_25.rss", "source": "Investing.com"},
@@ -72,6 +74,18 @@ def clean_html(text: str) -> str:
     return text.strip()
 
 
+def clean_post_text(text: str) -> str:
+    text = re.sub(r"<.*?>", "", text or "")
+    text = text.replace("&nbsp;", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
+    cleaned = []
+    for line in lines:
+        if line or (cleaned and cleaned[-1]):
+            cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def translate_to_ru(text: str) -> str:
     if not text:
         return ""
@@ -93,13 +107,32 @@ def load_posted_ids() -> set:
 
 def save_posted_ids(posted_ids: set) -> None:
     STATE_FILE.write_text(
-        json.dumps(list(posted_ids)[-500:], ensure_ascii=False, indent=2),
+        json.dumps(sorted(posted_ids)[-1000:], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
+def normalize_for_id(text: str) -> str:
+    text = clean_html(text).lower()
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[^a-zа-я0-9 ]+", " ", text)
+    words = text.split()
+    return " ".join(words[:14])
+
+
 def item_id(title: str, link: str) -> str:
-    return hashlib.sha256(f"{title}|{link}".encode("utf-8")).hexdigest()
+    raw = normalize_for_id(title)
+    if not raw:
+        raw = clean_html(link).lower()
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def is_recent_entry(entry) -> bool:
+    parsed_time = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
+    if not parsed_time:
+        return True
+    age_seconds = time.time() - time.mktime(parsed_time)
+    return age_seconds <= MAX_NEWS_AGE_DAYS * 86400
 
 
 def is_market_relevant(title: str, summary: str, link: str) -> bool:
@@ -144,7 +177,11 @@ def is_valid_ai_post(text: str) -> bool:
         return False
     if "Источник:" not in text:
         return False
-    if len(text) > 1300:
+    if "Ключевые детали:" not in text:
+        return False
+    if "Почему это важно:" not in text:
+        return False
+    if len(text) > 1400:
         return False
     return True
 
@@ -198,7 +235,7 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
             json={
                 "model": OPENROUTER_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.15,
+                "temperature": 0.12,
                 "max_tokens": 900,
             },
             timeout=60,
@@ -218,7 +255,7 @@ def create_ai_post(title: str, summary: str, source: str) -> str:
         print("OpenRouter parse error:", e, response.text[:500])
         return ""
 
-    result = clean_html(result)
+    result = clean_post_text(result)
 
     if not is_valid_ai_post(result):
         print("AI post rejected")
@@ -265,6 +302,9 @@ def collect_news() -> List[Dict]:
         parsed = feedparser.parse(feed["url"])
         print(f"Feed {feed['source']}: {len(parsed.entries)} entries")
         for entry in parsed.entries[:15]:
+            if not is_recent_entry(entry):
+                continue
+
             title = clean_html(getattr(entry, "title", ""))
             link = getattr(entry, "link", "").strip()
             summary = get_summary(entry)
@@ -309,6 +349,7 @@ def main() -> None:
         post_text = build_post(item["title"], item["summary"], item["link"], item["source"])
 
         if not post_text:
+            posted_ids.add(item["id"])
             continue
 
         if send_message(post_text, item["link"]):
